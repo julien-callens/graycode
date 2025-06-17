@@ -2,63 +2,57 @@ name: Build & Release wheels
 
 on:
   push:
-    tags: ["v*"]            # run ONLY when you push a Git tag like v0.2.0
-
-defaults:
-  run:
-    shell: bash
+    tags: ['v*']
 
 jobs:
   build:
-    name: Build wheels (${{ matrix.os }} / py${{ matrix.py }})
+    name: wheel-${{ matrix.os }}-py${{ matrix.python }}
     strategy:
       fail-fast: false
       matrix:
-        os:   [ubuntu-latest, windows-latest, macos-latest]   # macOS-14 adds Apple-Silicon if desired
-        py:   ["3.9", "3.10", "3.11", "3.12"]
+        os:     [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.10', '3.11', '3.12'. '3.13']
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.py }}
+      - name: Set up CPython
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.py }}
+          python-version: ${{ matrix.python }}
 
-      # maturin-action installs Rust & maturin and does the build in one step
       - name: Build wheel with maturin
-        uses: PyO3/maturin-action@v1                # maintained by PyO3 team :contentReference[oaicite:1]{index=1}
+        uses: PyO3/maturin-action@v1
         with:
-          # manylinux images only matter on linux; auto picks manylinux2014
-          manylinux: auto                           # wheels pass auditwheel :contentReference[oaicite:2]{index=2}
+          manylinux: auto
           command: build
-          args: --release --out dist --features parallel
+          args: --release --out wheelhouse --features parallel
 
       - name: Upload wheel artefact
         uses: actions/upload-artifact@v4
         with:
-          name: wheels                             # all OSes dump into the same logical artefact
-          path: dist/*.whl
+          name: wheel-${{ matrix.os }}-py${{ matrix.python }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
 
   release:
-    name: Publish GitHub Release
+    name: Draft GitHub release
     needs: build
     runs-on: ubuntu-latest
-
     steps:
-      - name: Download all wheel artefacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: wheels
-          path: dist
+          path: collected
 
-      # Create (or reuse) a GitHub release whose tag equals the pushed tag.
-      # softprops/action-gh-release handles both create & upload. :contentReference[oaicite:3]{index=3}
-      - name: Create / Update Release
+      - name: Collect wheels into dist/
+        run: |
+          mkdir -p dist
+          find collected -name '*.whl' -exec cp {} dist/ \;
+
+      - name: Create / update release and upload wheels
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.whl
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # provided automatically
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
