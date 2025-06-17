@@ -1,0 +1,64 @@
+name: Build & Release wheels
+
+on:
+  push:
+    tags: ["v*"]            # run ONLY when you push a Git tag like v0.2.0
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build wheels (${{ matrix.os }} / py${{ matrix.py }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:   [ubuntu-latest, windows-latest, macos-latest]   # macOS-14 adds Apple-Silicon if desired
+        py:   ["3.9", "3.10", "3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.py }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.py }}
+
+      # maturin-action installs Rust & maturin and does the build in one step
+      - name: Build wheel with maturin
+        uses: PyO3/maturin-action@v1                # maintained by PyO3 team :contentReference[oaicite:1]{index=1}
+        with:
+          # manylinux images only matter on linux; auto picks manylinux2014
+          manylinux: auto                           # wheels pass auditwheel :contentReference[oaicite:2]{index=2}
+          command: build
+          args: --release --out dist --features parallel
+
+      - name: Upload wheel artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels                             # all OSes dump into the same logical artefact
+          path: dist/*.whl
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all wheel artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: dist
+
+      # Create (or reuse) a GitHub release whose tag equals the pushed tag.
+      # softprops/action-gh-release handles both create & upload. :contentReference[oaicite:3]{index=3}
+      - name: Create / Update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # provided automatically
